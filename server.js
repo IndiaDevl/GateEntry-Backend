@@ -1,4 +1,3 @@
-
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -12,12 +11,6 @@ app.use(express.json());
 // NOTE: in dev we allow all origins. In production set specific origin.
 app.use(cors({ origin: true, credentials: true }));
 
-// // Configure these or set via .env
-// const SAP_BASE = process.env.SAP_BASE || 'https://my430301-api.s4hana.cloud.sap/sap/opu/odata/sap/YY1_GATEINWARD_OUTWARDDETA_CDS';
-// const SAP_BASE_WEIGHTBRIDGE = process.env.SAP_BASE_WEIGHTBRIDGE || 'https://my430301-api.s4hana.cloud.sap/sap/opu/odata/sap/YY1_CAPTURINGWEIGHTDETAILS_CDS';
-// const SAP_USER = process.env.SAP_USER || 'BTPINTEGRATION';
-// const SAP_PASS = process.env.SAP_PASS || 'BTPIntegration@1234567890';
-// Configure these or set via .env
 const SAP_BASE = 'https://my430301-api.s4hana.cloud.sap/sap/opu/odata/sap/YY1_GATEINWARD_OUTWARDDETA_CDS';
 const SAP_BASE_WEIGHTBRIDGE = 'https://my430301-api.s4hana.cloud.sap/sap/opu/odata/sap/YY1_CAPTURINGWEIGHTDETAILS_CDS';
 const SAP_BASE_InitialRegistration = 'https://my430301-api.s4hana.cloud.sap/sap/opu/odata/sap/YY1_INITIALREGISTRATION_CDS';
@@ -413,7 +406,6 @@ app.get('/api/headers/:id', async (req, res) => {
 });
 
 
-
 /* GET items for a header */
 app.get('/api/headers/:id/items', async (req, res) => {
   const id = req.params.id;
@@ -427,7 +419,6 @@ app.get('/api/headers/:id/items', async (req, res) => {
   }
 });
 
-/* POST new header (deep insert with items) - Gate Entry */
 // POST new header (deep insert with items) - Gate Entry
 app.post('/api/headers', async (req, res) => {
   // Only one request at a time can generate and assign a GateEntryNumber
@@ -548,75 +539,7 @@ app.patch('/api/headers/:id', async (req, res) => {
     res.status(err?.response?.status || 500).json({ error: err?.response?.data || err?.message });
   }
 });
-// Internal transfer posting PDF generation for header
-// app.post('/api/headers/:id/pdf', async (req, res) => {
-//   const id = req.params.id;
-//   try {
-//     // Fetch the header data from SAP
-//     const resp = await sapAxios.get(`/YY1_GATEINWARD_OUTWARDDETA(guid'${id}')?$format=json`);
-//     const data = resp.data?.d || resp.data;
 
-//     // Create PDF
-//     const doc = new PDFDocument();
-//     res.setHeader('Content-disposition', 'attachment; filename="header.pdf"');
-//     res.setHeader('Content-type', 'application/pdf');
-//     doc.fontSize(18).text('Gate Entry Header Details', { underline: true });
-//     doc.moveDown();
-
-//     // Add fields (customize as needed)
-//     Object.entries(data).forEach(([key, value]) => {
-//       doc.fontSize(12).text(`${key}: ${value}`);
-//     });
-
-//     doc.end();
-//     doc.pipe(res);
-//   } catch (err) {
-//     console.error('PDF generation error:', err);
-//     res.status(500).json({ error: 'Failed to generate PDF' });
-//   }
-// });
-
-// app.post('/api/headers/:id/pdf', async (req, res) => {
-//   const id = req.params.id;
-//   try {
-//     // Fetch the header data from SAP
-//     const resp = await sapAxios.get(`/YY1_GATEINWARD_OUTWARDDETA(guid'${id}')?$format=json`);
-//     const data = resp.data?.d || resp.data;
-
-//     // Only select the fields you want
-//     const fields = [
-//       { label: "Gate Entry Number", value: data.GateEntryNumber },
-//       { label: "Gate Entry Date", value: (data.GateEntryDate || '').slice(0, 10) },
-//       { label: "Vehicle Number", value: data.VehicleNumber },
-//       { label: "Transporter Name", value: data.TransporterName },
-//       { label: "Driver Name", value: data.DriverName },
-//       { label: "Gross Weight", value: data.GrossWeight },
-//       { label: "Tare Weight", value: data.TareWeight },
-//       { label: "Net Weight", value: data.NetWeight },
-//       { label: "Outward Time", value: data.OutwardTime },
-//       { label: "Remarks", value: data.Remarks },
-//       // Add/remove fields as needed
-//     ];
-
-//     const doc = new PDFDocument({ margin: 40 });
-//     res.setHeader('Content-disposition', 'attachment; filename="header.pdf"');
-//     res.setHeader('Content-type', 'application/pdf');
-//     doc.fontSize(18).text('Gate Entry Header Details', { underline: true, align: 'center' });
-//     doc.moveDown(1.5);
-
-//     fields.forEach(({ label, value }) => {
-//       doc.font('Helvetica-Bold').fontSize(12).text(`${label}:`, { continued: true, width: 180 });
-//       doc.font('Helvetica').fontSize(12).text(` ${value ?? ''}`);
-//       doc.moveDown(0.5);
-//     });
-
-//     doc.end();
-//     doc.pipe(res);
-//   } catch (err) {
-//     console.error('PDF generation error:', err);
-//     res.status(500).json({ error: 'Failed to generate PDF' });
-//   }
-// });
 app.post('/api/headers/:id/pdf', async (req, res) => {
   const id = req.params.id;
   try {
@@ -974,23 +897,121 @@ app.patch('/api/headers/material/obd/:docNumber', async (req, res) => {
   }
 });
 
+
+// Build Initial Registration prefix like '25' + '00000000' for year 2025
+function buildInitialRegPrefix(yearInput) {
+  const now = new Date();
+  const year = (yearInput && String(yearInput).length === 4) ? String(yearInput) : String(now.getFullYear());
+  return year.slice(-2) + '00000000';
+}
+
+// Build Initial Registration prefix like '25' for year 2025
+function buildInitialRegPrefix(yearInput) {
+  const now = new Date();
+  const year = (yearInput && String(yearInput).length === 4) ? String(yearInput) : String(now.getFullYear());
+  return year.slice(-2); // Just the 2-digit year
+}
+
+// Compute next Initial Registration number
+function computeNextInitialRegNumber(yearPrefix, latestRegNumber) {
+  const suffixLength = 8; // 8 digits after year = total 10 digits
+  
+  if (!latestRegNumber) {
+    // First number for this year
+    return `${yearPrefix}${String(1).padStart(suffixLength, '0')}`;
+  }
+  
+  // Extract current suffix
+  const currentSuffix = latestRegNumber.slice(2); // Remove first 2 characters (year)
+  const currentSuffixNum = parseInt(currentSuffix, 10);
+  
+  if (isNaN(currentSuffixNum)) {
+    // Invalid number, start from 1
+    return `${yearPrefix}${String(1).padStart(suffixLength, '0')}`;
+  }
+  
+  // Compute next suffix
+  const nextSuffixNum = currentSuffixNum + 1;
+  
+  // Format back to 8 digits
+  const nextSuffix = String(nextSuffixNum).padStart(suffixLength, '0');
+  
+  return `${yearPrefix}${nextSuffix}`;
+}
+
+// Fetch latest Initial Registration number from SAP matching the year prefix
+async function getLatestInitialRegNumberFromSap(yearPrefix) {
+  try {
+    // Filter by year prefix (first 2 digits)
+    const filter = `startswith(RegistrationNumber,'${yearPrefix}')`;
+    const path = `/YY1_INITIALREGISTRATION?$filter=${filter}&$orderby=RegistrationNumber desc&$top=1&$format=json`;
+    console.log('[DEBUG] Fetching latest Initial Registration number from SAP:', path);
+    const resp = await sapAxiosInitialRegistration.get(path);
+    
+    // Handle different OData response formats
+    let results = [];
+    if (resp.data && resp.data.d && resp.data.d.results) {
+      results = resp.data.d.results;
+    } else if (resp.data && resp.data.value) {
+      results = resp.data.value;
+    }
+    
+    const latestNumber = results.length > 0 ? results[0].RegistrationNumber : null;
+    console.log('[DEBUG] Latest Initial Registration number found:', latestNumber);
+    return latestNumber;
+  } catch (e) {
+    console.error('Error fetching latest Initial Registration number', e);
+    return null;
+  }
+}
+
+// Utility: Generate Initial Registration Number (year-based series)
+const getNextInitialRegNumber = async (yearInput) => {
+  const yearPrefix = buildInitialRegPrefix(yearInput);
+  console.log('[DEBUG] Year prefix:', yearPrefix);
+  
+  const latest = await getLatestInitialRegNumberFromSap(yearPrefix);
+  console.log('[DEBUG] Latest number from SAP:', latest);
+  
+  const nextNumber = computeNextInitialRegNumber(yearPrefix, latest);
+  console.log('[DEBUG] Computed next number:', nextNumber);
+  
+  return nextNumber;
+};
+
+// Mutex for atomic Initial Registration number generation
+//const { Mutex } = require('async-mutex');
+const initialRegMutex = new Mutex();
+
 // Initial Registration POST
 app.post('/api/initial-registration', async (req, res) => {
-  try {
-    const input = sanitizePayloadForSapServerSide(req.body);
-    const { token, cookies } = await fetchCsrfTokenInitialRegistration();
-    const resp = await sapAxiosInitialRegistration.post('/YY1_INITIALREGISTRATION', input, {
-      headers: {
-        'Content-Type': 'application/json',
-        'x-csrf-token': token,
-        Cookie: cookies,
-      },
-    });
-    res.status(resp.status).json(resp.data);
-  } catch (err) {
-    console.error('POST Initial Registration error', err?.response?.status, err?.response?.data || err?.message);
-    res.status(err?.response?.status || 500).json({ error: err?.response?.data || err?.message });
-  }
+  await initialRegMutex.runExclusive(async () => {
+    try {
+      console.log('[DEBUG] Initial Registration request received:', req.body);
+      // Use year from payload if present, else current year
+      const year = req.body.RegistrationYear || (req.body.RegistrationDate ? String(req.body.RegistrationDate).slice(0, 4) : (new Date()).getFullYear());
+      // Generate RegistrationNumber
+      const registrationNumber = await getNextInitialRegNumber(year);
+      console.log('[DEBUG] Generated RegistrationNumber:', registrationNumber);
+      // Remove BalanceQty from payload if present
+      const { BalanceQty, ...rest } = req.body;
+      const input = sanitizePayloadForSapServerSide({ ...rest, RegistrationNumber: registrationNumber });
+      console.log('[DEBUG] Payload to SAP:', input);
+      const { token, cookies } = await fetchCsrfTokenInitialRegistration();
+      const resp = await sapAxiosInitialRegistration.post('/YY1_INITIALREGISTRATION', input, {
+        headers: {
+          'Content-Type': 'application/json',
+          'x-csrf-token': token,
+          Cookie: cookies,
+        },
+      });
+      console.log('[DEBUG] SAP response:', resp.data);
+      res.status(resp.status).json({ ...resp.data, RegistrationNumber: registrationNumber });
+    } catch (err) {
+      console.error('POST Initial Registration error', err?.response?.status, err?.response?.data || err?.message);
+      res.status(err?.response?.status || 500).json({ error: err?.response?.data || err?.message });
+    }
+  });
 });
 
 /* GET Initial Registration list with optional search and count */
@@ -1334,6 +1355,40 @@ function parseSapErrorToFriendlyMessage(err) {
   }
 }
 
+// backend/server.js or routes file
+
+app.get('/api/po-suggestions', async (req, res) => {
+  const query = req.query.query || '';
+  const limit = parseInt(req.query.limit) || 10;
+
+  if (!query || query.length < 1) {
+    return res.json({ items: [] });
+  }
+
+  try {
+    let sapPath;
+    if (query.length <= 10) {
+      sapPath = `/PurchaseOrder?$filter=startswith(PurchaseOrder, '${query}')&$top=${limit}&$select=PurchaseOrder,Supplier,PurchaseOrderDate&$format=json`;
+    } else {
+      sapPath = `/PurchaseOrder?$filter=substringof('${query}', PurchaseOrder) eq true&$top=${limit}&$select=PurchaseOrder,Supplier,PurchaseOrderDate&$format=json`;
+    }
+
+    console.log('SAP Query:', sapPath);
+    const response = await sapAxiosPO.get(sapPath);
+
+    const suggestions = response.data.value.map(po => ({
+      PurchaseOrder: po.PurchaseOrder,
+      Supplier: po.Supplier,
+      PurchaseOrderDate: po.PurchaseOrderDate
+    }));
+
+    res.json({ items: suggestions });
+  } catch (error) {
+    // Add this for better debugging:
+    console.error('Error fetching PO suggestions:', error?.response?.data || error.message || error);
+    res.status(500).json({ error: 'Failed to fetch PO suggestions', details: error?.response?.data || error.message || error });
+  }
+});
 
 app.get('/api/purchaseorder/:poNumber', async (req, res) => {
   const poNumber = req.params.poNumber;
@@ -1382,79 +1437,6 @@ app.get('/api/po-permitnumber/:permitnumber', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch PO and items by salesPersonName' });
   }
 });
-
-// GET User Access by username
-// app.get('/api/useraccess/:username', async (req, res) => {
-//   const username = req.params.username;
-//   try {
-//     // Remove $format=json and use proper OData V4 syntax
-//     const path = `/YY1_USERACCESS?$filter=UserName eq '${username}'`;
-    
-//     console.log('[USERACCESS] Requesting SAP URL:', SAP_BASE_UserAccess + path);
-
-//     const response = await sapAxiosUserAccess.get(path, {
-//       headers: {
-//         'Accept': 'application/json',
-//         'Content-Type': 'application/json'
-//       }
-//     });
-
-//     // Handle different OData response formats
-//     let results = [];
-//     if (response.data && response.data.value) {
-//       // OData V4 format
-//       results = response.data.value;
-//     } else if (response.data && response.data.d && response.data.d.results) {
-//       // OData V2 format with "d" wrapper
-//       results = response.data.d.results;
-//     } else if (response.data && response.data.d) {
-//       // OData V2 single result
-//       results = [response.data.d];
-//     } else {
-//       results = response.data || [];
-//     }
-
-//     console.log('[USERACCESS] Found', results.length, 'records');
-//     return res.json({
-//       success: true,
-//       count: results.length,
-//       data: results
-//     });
-    
-//   } catch (error) {
-//     console.error('Error fetching user access:');
-    
-//     if (error.response) {
-//       console.error('Status:', error.response.status);
-//       console.error('Data:', error.response.data);
-      
-//       // More specific error handling
-//       if (error.response.status === 400) {
-//         return res.status(400).json({
-//           error: 'Bad request to SAP system',
-//           message: error.response.data.error?.message?.value || 'Invalid request format',
-//           details: 'Try without $format parameter or check OData version'
-//         });
-//       } else if (error.response.status === 401) {
-//         return res.status(401).json({ error: 'Authentication failed' });
-//       } else if (error.response.status === 404) {
-//         return res.status(404).json({ error: 'User access service not found' });
-//       }
-      
-//       return res.status(error.response.status).json({
-//         error: 'SAP system error',
-//         status: error.response.status,
-//         message: error.response.data
-//       });
-//     } else {
-//       console.error('Network error:', error.message);
-//       return res.status(500).json({ 
-//         error: 'Network error', 
-//         message: error.message 
-//       });
-//     }
-//   }
-// });
 
 
 app.post('/api/user-credentials', async (req, res) => {
@@ -1511,30 +1493,6 @@ app.get('/api/salesorders/:soNumber', async (req, res) => {
   }
 });
 
-// ...existing code...
-
-// //GET /api/salesorders?search=12
-// app.get('/api/salesorders', async (req, res) => {
-//   const search = (req.query.search || '').trim();
-//   if (!search) {
-//     return res.status(400).json({ error: 'Missing search parameter' });
-//   }
-//   try {
-//     // OData V2: use substringof for partial match
-//     const filter = `substringof('${search}',SalesOrder)`;
-//     const path = `/A_SalesOrder?$filter=${filter}&$top=10&$format=json`;
-//     const resp = await sapAxiosSO.get(path);
-//     const results = resp.data?.d?.results || [];
-//     // Return only SO numbers (or more fields if needed)
-//     res.json(results.map(r => ({
-//       SalesOrder: r.SalesOrder,
-//       ...r // include more fields if needed
-//     })));
-//   } catch (err) {
-//     console.error('SO suggest error', err?.response?.data || err.message);
-//     res.status(500).json({ error: 'Failed to fetch SO suggestions' });
-//   }
-// });
 
 // GET /api/salesorders?search=12
 app.get('/api/salesorders', async (req, res) => {
@@ -1695,36 +1653,7 @@ app.patch('/api/outbounddelivery/:deliveryDocument/items/:itemNumber', async (re
     res.status(err?.response?.status || 500).json({ error: err?.response?.data || err?.message || 'Failed to update outbound delivery item' });
   }
 });
-// app.post('/api/goodsissue', async (req, res) => {
-//   try {
-//     const deliveryDocument = req.body.DeliveryDocument; // Assuming the body has { "DeliveryDocument": "80000007" }
-    
-//     // Check if the parameter is provided
-//     if (!deliveryDocument) {
-//       return res.status(400).json({ error: "DeliveryDocument parameter is required" });
-//     }
 
-//     const { token, cookies } = await fetchCsrfTokenGoodsIssue();
-    
-//     // Pass the DeliveryDocument as a query parameter in the URL
-//     const url = `/PostGoodsIssue?DeliveryDocument='${encodeURIComponent(deliveryDocument)}'`;
-    
-//     // Send the POST request with an empty body or the required body structure
-//     const resp = await sapAxiosOBD.post(url, {}, { // Empty body object
-//       headers: {
-//         'Content-Type': 'application/json',
-//         'x-csrf-token': token,
-//         'If-Match': '*',
-//         Cookie: cookies
-//       }
-//     });
-    
-//     res.status(resp.status).json(resp.data);
-//   } catch (err) {
-//     console.error('Goods Issue post error', err?.response?.status, err?.response?.data || err.message);
-//     res.status(err?.response?.status || 500).json({ error: err?.response?.data || err?.message || 'Failed to create goods issue' });
-//   }
-// });
 
 app.post('/api/goodsissue-and-invoice', async (req, res) => {
   try {
@@ -1769,53 +1698,66 @@ app.post('/api/goodsissue-and-invoice', async (req, res) => {
         }
       });
 
-      if (billingResp.status === 201 || billingResp.status === 200) {
-        const billingDocNumber = billingResp.data?.BillingDocument || (Array.isArray(billingResp.data?.value) && billingResp.data.value.length > 0 ? billingResp.data.value[0].BillingDocument : undefined);
-        console.log('Billing Document Number:', billingDocNumber);
-        if (!billingDocNumber) {
-          console.error('Billing document number is missing in response:', billingResp.data);
-          return res.status(500).json({
-            error: 'Billing document number is missing in SAP response',
-            details: billingResp.data
-          });
-        }
-        console.log(`✅ Billing document ${billingDocNumber} created`);
+if (billingResp.status === 201 || billingResp.status === 200) {
+        const billingDocNumber = billingResp.data?.BillingDocument || 
+    (Array.isArray(billingResp.data?.value) && billingResp.data.value.length > 0 ? 
+      billingResp.data.value[0].BillingDocument : undefined);
+  
+  console.log('Billing Document Number:', billingDocNumber);
+  
+  if (!billingDocNumber) {
+    console.error('Billing document number is missing in response:', billingResp.data);
+    return res.status(500).json({
+      error: 'Billing document number is missing in SAP response',
+      details: billingResp.data
+    });
+  }
+  
+  console.log(`✅ Billing document ${billingDocNumber} created`);
 
-        // Wait for SAP to process the document
-        await new Promise(resolve => setTimeout(resolve, 3000));
+  // Wait for SAP to process the document
+  await new Promise(resolve => setTimeout(resolve, 3000));
 
-        // Download PDF
-        try {
-          const pdfUrl = `/GetPDF?BillingDocument='${billingDocNumber}'`;
-          const pdfResponse = await sapAxiosBillingPDF.get(pdfUrl, {
-            headers: {
-//              'Accept': 'application/pdf',
-              'x-csrf-token': token,
-              'Cookie': cookies
-            },
-            responseType: 'stream',
-            timeout: 30000
-          });
+  // Download PDF
+  try {
+    const pdfUrl = `/GetPDF?BillingDocument='${billingDocNumber}'`;
+    const pdfResponse = await sapAxiosBillingPDF.get(pdfUrl, {
+      headers: {
+        // 'Accept': 'application/pdf',
+        'x-csrf-token': token,
+        'Cookie': cookies
+      },
+      responseType: 'arraybuffer', // Change from 'stream' to 'arraybuffer'
+      timeout: 30000
+    });
 
-          // Set response for PDF download
-          res.setHeader('Content-Type', 'application/pdf');
-          res.setHeader('Content-Disposition', `attachment; filename="Billing_${billingDocNumber}.pdf"`);
+    // Set response headers for PDF download
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="Billing_${billingDocNumber}.pdf"`);
+    res.setHeader('X-Goods-Issue-Number', deliveryDocument || '');
+    res.setHeader('X-Billing-Document-Number', billingDocNumber);
+    res.setHeader('Access-Control-Expose-Headers', 'X-Goods-Issue-Number, X-Billing-Document-Number');
 
-          // Stream PDF to client
-          pdfResponse.data.pipe(res);
-
-          console.log(`📄 PDF for ${billingDocNumber} downloaded automatically`);
-        } catch (pdfError) {
-          console.error(`PDF download failed for ${billingDocNumber}:`, pdfError.message);
-          // Fallback: Return JSON response without PDF, only include serializable error info
-          res.status(201).json({
-            success: true,
-            billingDocument: billingDocNumber,
-            message: 'Billing created but PDF download failed',
-            error: typeof pdfError?.response?.data === 'string' ? pdfError.response.data : pdfError?.message || 'PDF download failed'
-          });
-        }
-      } else {
+    // Send PDF buffer directly
+    res.send(Buffer.from(pdfResponse.data));
+    
+    console.log(`📄 PDF for ${billingDocNumber} downloaded automatically`);
+    
+  } catch (pdfError) {
+    console.error(`PDF download failed for ${billingDocNumber}:`, pdfError.message);
+    
+    // Fallback: Return JSON response
+    if (!res.headersSent) {
+      return res.status(201).json({
+        success: true,
+        billingDocument: billingDocNumber,
+        message: 'Billing created but PDF download failed',
+        error: pdfError.message || 'PDF download failed',
+        goodsIssueNumber: deliveryDocument
+      });
+    }
+  }
+} else {
         return res.status(billingResp.status).json({ error: 'Billing creation failed', details: billingResp.data });
       }
     } else {
@@ -1834,7 +1776,7 @@ res.status(status || 500).json({
 });
 
 // Start server
-const port = process.env.PORT || 4300;
+const port = process.env.PORT || 4400;
 app.listen(port, () => console.log(`Server running on http://localhost:${port}`));
 
 
