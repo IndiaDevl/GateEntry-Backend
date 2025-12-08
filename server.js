@@ -1027,6 +1027,7 @@ app.get('/api/initial-registrations', async (req, res) => {
       const s = search.replace(/'/g, "''"); // escape single quotes for OData
       // Use substringof instead of contains - OData V2 syntax
       const clauses = [
+        `substringof('${s}',RegistrationNumber)`,
         `substringof('${s}',SalesDocument)`,
         `substringof('${s}',VehicleNumber)`,
         `substringof('${s}',Transporter)`,
@@ -1585,6 +1586,7 @@ app.post('/api/outbounddelivery', async (req, res) => {
         'x-csrf-token': token,
         Cookie: cookies
       }
+
     });
     res.status(resp.status).json(resp.data);
   } catch (err) {
@@ -1655,6 +1657,191 @@ app.patch('/api/outbounddelivery/:deliveryDocument/items/:itemNumber', async (re
 });
 
 
+// // requires: const fs = require('fs'); at top of file
+// const fs = require('fs');
+// app.post('/api/goodsissue-and-invoice', async (req, res) => {
+//   try {
+//     const deliveryDocument = req.body.DeliveryDocument;
+//     if (!deliveryDocument) return res.status(400).json({ error: "DeliveryDocument required" });
+
+//     const { token, cookies } = await fetchCsrfTokenGoodsIssue();
+
+//     // 1) Post Goods Issue
+//     const giUrl = `/PostGoodsIssue?DeliveryDocument='${encodeURIComponent(deliveryDocument)}'`;
+//     console.log('Posting Goods Issue ->', giUrl);
+//     const goodsIssueResp = await sapAxiosOBD.post(giUrl, {}, {
+//       headers: { 'Content-Type': 'application/json', 'x-csrf-token': token, 'If-Match': '*', Cookie: cookies }
+//     });
+//     const goodsIssueNumber = goodsIssueResp.data?.GoodsIssueNumber || goodsIssueResp.data?.DeliveryDocument || deliveryDocument;
+//     console.log('Goods Issue status:', goodsIssueResp.status, 'inferred:', goodsIssueNumber);
+//     if (![200,201,204].includes(goodsIssueResp.status)) {
+//       return res.status(goodsIssueResp.status).json({ error: 'Goods issue failed', details: goodsIssueResp.data });
+//     }
+
+//     // 2) Create Billing Document
+//     const billingPayload = {
+//       _Control: { DefaultBillingDocumentType: 'F2', AutomPostingToAcctgIsDisabled: false },
+//       _Reference: [{ SDDocument: deliveryDocument, SDDocumentCategory: 'J' }]
+//     };
+//     const billingUrl = `/BillingDocument/SAP__self.CreateFromSDDocument?DeliveryDocument='${encodeURIComponent(deliveryDocument)}'`;
+//     console.log('Creating billing ->', billingUrl);
+//     const billingResp = await sapAxiosBilling.post(billingUrl, billingPayload, {
+//       headers: { 'Content-Type': 'application/json', 'x-csrf-token': token, 'If-Match': '*', Cookie: cookies }
+//     });
+
+//     console.log('Billing resp status:', billingResp.status);
+//     try { console.log('Billing data preview:', JSON.stringify(billingResp.data).slice(0,1000)); }
+//     catch(e){ console.log('Billing raw preview:', String(billingResp.data).slice(0,1000)); }
+
+//     let billingDocNumber =
+//       billingResp.data?.BillingDocument ||
+//       (Array.isArray(billingResp.data?.value) && billingResp.data.value[0]?.BillingDocument) ||
+//       (billingResp.data?.d?.BillingDocument) || undefined;
+
+//     // if 204 or missing, try Location header + fallback search
+//     if (!billingDocNumber && billingResp.status === 204) {
+//       const loc = billingResp.headers?.location || billingResp.headers?.Location;
+//       console.log('Billing returned 204; Location=', loc);
+//       if (loc) {
+//         const m = loc.match(/BillingDocument['"\(=]*['"]?(\d+)['"]?\)?/);
+//         if (m) billingDocNumber = m[1];
+//       }
+//     }
+//     if (!billingDocNumber) {
+//       try {
+//         const searchResp = await sapAxiosBilling.get(`/BillingDocument?$filter=SDDocument eq '${encodeURIComponent(deliveryDocument)}'&$format=json`);
+//         const found = searchResp.data?.d?.results || searchResp.data?.value || [];
+//         if (Array.isArray(found) && found.length > 0) {
+//           billingDocNumber = found[0].BillingDocument || found[0].BillingDocumentNumber;
+//           console.log('Found billing via search:', billingDocNumber);
+//         }
+//       } catch (e) { console.warn('Billing search failed:', e?.message || e); }
+//     }
+
+//     console.log('Final BillingDoc:', billingDocNumber);
+//     if (!billingDocNumber) {
+//       return res.status(500).json({ error: 'Billing doc number not found', billingRespPreview: String(billingResp.data).slice(0,1000), headers: billingResp.headers });
+//     }
+
+//     // ---------- PDF retrieval with retries and saving debug files ----------
+//     const { XMLParser } = require('fast-xml-parser');
+//     const parser = new XMLParser({ ignoreAttributes:false, attributeNamePrefix:'@_', textNodeName:'#text', parseTagValue:false, parseAttributeValue:false });
+
+//     function findBillingBinary(node) {
+//       if (node == null) return null;
+//       if (typeof node === 'string') { if (node.trim().startsWith('JVBER')) return node.trim(); return null; }
+//       if (Buffer.isBuffer(node)) { const s = node.toString('utf8').trim(); if (s.startsWith('JVBER')) return s; }
+//       if (Array.isArray(node)) { for (const el of node) { const f = findBillingBinary(el); if (f) return f; } return null; }
+//       if (typeof node === 'object') {
+//         for (const k of Object.keys(node)) {
+//           const val = node[k];
+//           const key = k.includes(':') ? k.split(':').pop() : k;
+//           if (key === 'BillingDocumentBinary') {
+//             if (typeof val === 'string' && val.trim()) return val.trim();
+//             if (val && typeof val === 'object') {
+//               if ('#text' in val && typeof val['#text'] === 'string' && val['#text'].trim()) return val['#text'].trim();
+//               if ('text' in val && typeof val['text'] === 'string' && val['text'].trim()) return val['text'].trim();
+//             }
+//           }
+//           const nested = findBillingBinary(val);
+//           if (nested) return nested;
+//         }
+//       }
+//       return null;
+//     }
+
+//     async function fetchPdfAttempt() {
+//       const pdfUrl = `/GetPDF?BillingDocument='${billingDocNumber}'`;
+//       const pdfResponse = await sapAxiosBillingPDF.get(pdfUrl, {
+//         headers: { 'x-csrf-token': token, Cookie: cookies, Accept: 'application/xml, text/xml, */*' },
+//         responseType: 'text',
+//         timeout: 40000
+//       });
+
+//       // Save raw xml for inspection
+//       try {
+//         const tmpXmlPath = `./tmp_Billing_${billingDocNumber}_raw.xml`;
+//         fs.writeFileSync(tmpXmlPath, pdfResponse.data);
+//         console.log('Saved raw SAP XML ->', tmpXmlPath);
+//       } catch(e){ console.warn('Could not save raw XML:', e?.message || e); }
+
+//       const parsed = parser.parse(pdfResponse.data);
+//       const base64 = findBillingBinary(parsed);
+//       if (!base64) return { ok:false, reason:'noBase64', rawPreview: String(pdfResponse.data).substring(0,1200) };
+
+//       // normalize
+//       let b64clean = base64.toString().replace(/\s+/g, '').replace(/^"|"$/g,'');
+//       // Log first 200 characters (safe)
+//       console.log('base64 preview (first200):', b64clean.substring(0,200));
+
+//       // sanity
+//       if (!b64clean) return { ok:false, reason:'emptyBase64' };
+//       if (!b64clean.includes('JVBER')) return { ok:false, reason:'noJVBER', sample: b64clean.substring(0,200) };
+
+//       // decode once
+//       let pdfBuffer = Buffer.from(b64clean, 'base64');
+
+//       // If decode yields ASCII starting with JVBER, it's double-encoded -> decode again
+//       const firstAscii = pdfBuffer.toString('utf8',0,6);
+//       if (firstAscii && firstAscii.trim().startsWith('JVBER')) {
+//         console.log('Detected outer decode contains ASCII JVBER -> doing second decode');
+//         try {
+//           const second = Buffer.from(pdfBuffer.toString('utf8'), 'base64');
+//           if (second && second.length > 0) pdfBuffer = second;
+//         } catch(e) { console.warn('Second decode failed:', e?.message || e); }
+//       }
+
+//       // Save decoded pdf for inspection (even if small)
+//       try {
+//         const tmpPdfPath = `./tmp_Billing_${billingDocNumber}_decoded.pdf`;
+//         fs.writeFileSync(tmpPdfPath, pdfBuffer);
+//         console.log('Saved decoded PDF ->', tmpPdfPath);
+//       } catch(e){ console.warn('Could not save decoded PDF:', e?.message || e); }
+
+//       // magic and size checks
+//       const magic = pdfBuffer.toString('utf8',0,5);
+//       console.log('pdfBuffer length:', pdfBuffer.length, 'magic:', JSON.stringify(magic));
+//       if (magic !== '%PDF-') return { ok:false, reason:'badMagic', magic, length: pdfBuffer.length };
+//       if (pdfBuffer.length < 5000) return { ok:false, reason:'tooSmall', length: pdfBuffer.length };
+
+//       return { ok:true, buffer: pdfBuffer, length: pdfBuffer.length };
+//     }
+
+//     // longer retry: up to ~30s
+//     let pdfResult = null;
+//     const maxRetries = 20;
+//     for (let i=0;i<maxRetries;i++) {
+//       pdfResult = await fetchPdfAttempt();
+//       if (pdfResult && pdfResult.ok) break;
+//       console.log(`PDF not ready (${i+1}/${maxRetries}) reason=${pdfResult?.reason || 'none'}`);
+//       await new Promise(r=>setTimeout(r, 1500));
+//     }
+
+//     if (!pdfResult || !pdfResult.ok) {
+//       console.error('PDF extraction failed after retries:', pdfResult);
+//       return res.status(502).json({ error:'PDF extraction failed', billingDoc: billingDocNumber, debug: pdfResult });
+//     }
+
+//     // send pdf
+//     const buffer = pdfResult.buffer;
+//     res.setHeader('Content-Type','application/pdf');
+//     res.setHeader('Content-Disposition', `attachment; filename="Billing_${billingDocNumber}.pdf"`);
+//     res.setHeader('Content-Length', String(buffer.length));
+//     res.setHeader('X-Goods-Issue-Number', goodsIssueNumber);
+//     res.setHeader('X-Billing-Document-Number', billingDocNumber);
+//     res.setHeader('Access-Control-Expose-Headers','X-Goods-Issue-Number, X-Billing-Document-Number');
+//     console.log('Returning PDF length:', buffer.length);
+//     return res.status(200).send(buffer);
+
+//   } catch (err) {
+//     console.error('Handler error:', err?.response?.status || '', err?.message || err);
+//     const status = err?.response?.status || 500;
+//     return res.status(status).json({ error: err?.message || 'Internal server error' });
+//   }
+// });
+
+
+
 app.post('/api/goodsissue-and-invoice', async (req, res) => {
   try {
     const deliveryDocument = req.body.DeliveryDocument;
@@ -1698,7 +1885,8 @@ app.post('/api/goodsissue-and-invoice', async (req, res) => {
         }
       });
 
-if (billingResp.status === 201 || billingResp.status === 200) {
+  console.log('Billing response status:', billingResp.status, 'data:', billingResp.data);    
+if (billingResp.status === 201 || billingResp.status === 200 || billingResp.status === 204) {
         const billingDocNumber = billingResp.data?.BillingDocument || 
     (Array.isArray(billingResp.data?.value) && billingResp.data.value.length > 0 ? 
       billingResp.data.value[0].BillingDocument : undefined);
@@ -1718,18 +1906,57 @@ if (billingResp.status === 201 || billingResp.status === 200) {
   // Wait for SAP to process the document
   await new Promise(resolve => setTimeout(resolve, 3000));
 
-  // Download PDF
+  // Download PDF (SAP returns XML with base64 PDF)
   try {
+    const { XMLParser } = require("fast-xml-parser");
+    function findBillingBinary(obj) {
+      if (obj == null) return null;
+      if (typeof obj === "string") {
+        if (obj.trim().startsWith("JVBER")) return obj;
+        return null;
+      }
+      if (typeof obj !== "object") return null;
+      for (const key of Object.keys(obj)) {
+        const val = obj[key];
+        const shortKey = key.includes(":") ? key.split(":").pop() : key;
+        if (shortKey === "BillingDocumentBinary") {
+          if (typeof val === "string") return val;
+          if (val && typeof val === "object") {
+            if ("#text" in val) return val["#text"];
+            if ("text" in val) return val["text"];
+            const s = JSON.stringify(val);
+            if (s && s.includes("JVBER")) {
+              const m = s.match(/JVBER[^\"]*/);
+              if (m) return m[0];
+            }
+          }
+        }
+        const found = findBillingBinary(val);
+        if (found) return found;
+      }
+      return null;
+    }
+
     const pdfUrl = `/GetPDF?BillingDocument='${billingDocNumber}'`;
     const pdfResponse = await sapAxiosBillingPDF.get(pdfUrl, {
       headers: {
-        // 'Accept': 'application/pdf',
         'x-csrf-token': token,
-        'Cookie': cookies
+        'Cookie': cookies,
+        'Accept': 'application/xml, text/xml, */*'
       },
-      responseType: 'arraybuffer', // Change from 'stream' to 'arraybuffer'
+      responseType: 'text',
       timeout: 30000
     });
+
+    const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_" });
+    const parsed = parser.parse(pdfResponse.data);
+    const base64 = findBillingBinary(parsed);
+    if (!base64) {
+      console.error("BillingDocumentBinary not found in SAP response. Raw SAP response:\n", pdfResponse.data.substring(0, 1000));
+      throw new Error("BillingDocumentBinary not found in SAP response");
+    }
+    const b64clean = base64.toString().replace(/\s+/g, "");
+    const pdfBuffer = Buffer.from(b64clean, "base64");
 
     // Set response headers for PDF download
     res.setHeader('Content-Type', 'application/pdf');
@@ -1737,15 +1964,37 @@ if (billingResp.status === 201 || billingResp.status === 200) {
     res.setHeader('X-Goods-Issue-Number', deliveryDocument || '');
     res.setHeader('X-Billing-Document-Number', billingDocNumber);
     res.setHeader('Access-Control-Expose-Headers', 'X-Goods-Issue-Number, X-Billing-Document-Number');
-
+console.log('Base64 PDF (first 500 chars):', b64clean.substring(0, 500));
+console.log('PDF buffer length:', pdfBuffer.length);
+if (!pdfBuffer || pdfBuffer.length < 1000) {
+  console.error('PDF buffer is too small, likely invalid.');
+}
     // Send PDF buffer directly
-    res.send(Buffer.from(pdfResponse.data));
+    res.send(pdfBuffer);
+    // Send PDF as email attachment
+try {
+  await transporter.sendMail({
+    from: 'chinnasukumar056@gmail.com',
+    to: 'n.sukumar056@gmail.com', // or dynamic recipient
+    subject: `Billing Document PDF - ${billingDocNumber}`,
+    text: `Please find attached the billing document PDF for Delivery Document: ${deliveryDocument}`,
+    attachments: [
+      {
+        filename: `Billing_${billingDocNumber}.pdf`,
+        content: pdfBuffer,
+        contentType: 'application/pdf'
+      }
+    ]
+  });
+  console.log('✅ Billing PDF emailed successfully');
+} catch (mailErr) {
+  console.error('❌ Failed to send billing PDF email:', mailErr);
+}
     
     console.log(`📄 PDF for ${billingDocNumber} downloaded automatically`);
     
   } catch (pdfError) {
     console.error(`PDF download failed for ${billingDocNumber}:`, pdfError.message);
-    
     // Fallback: Return JSON response
     if (!res.headersSent) {
       return res.status(201).json({
@@ -1776,7 +2025,7 @@ res.status(status || 500).json({
 });
 
 // Start server
-const port = process.env.PORT || 4400;
+const port = process.env.PORT || 4600;
 app.listen(port, () => console.log(`Server running on http://localhost:${port}`));
 
 
