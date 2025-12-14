@@ -284,7 +284,7 @@ function buildPrefixFromYearAndCode(yearInput, codeInput) {
   const year = (yearInput && String(yearInput).length === 4) ? String(yearInput) : String(now.getFullYear());
   const yy = year.slice(-2);
   const code = String(codeInput || '1');
-  return `${yy}${code}`; // e.g. '253' when year=2025 and code=3
+  return `${yy}${code}`; //2510000001
 }
 
 function computeNextGateEntryNumber(prefix, latestGateNumber) {
@@ -485,37 +485,37 @@ app.post('/api/headers/material/in', async (req, res) => {
   }
 });
 
-/* POST Material Outward - Weight Bridge */
-app.post('/api/headers/material/out', async (req, res) => {
-  try {
-    const input = sanitizePayloadForSapServerSide(req.body);
+// /* POST Material Outward - Weight Bridge */
+// app.post('/api/headers/material/out', async (req, res) => {
+//   try {
+//     const input = sanitizePayloadForSapServerSide(req.body);
     
-    // Ensure WeightDocNumber exists (SAP requires it)
-    if (!input.WeightDocNumber) {
-      console.error('[ERROR] WeightDocNumber is missing!');
-      return res.status(400).json({ 
-        error: 'WeightDocNumber is required. Please ensure it is generated on the frontend.' 
-      });
-    }
+//     // Ensure WeightDocNumber exists (SAP requires it)
+//     if (!input.WeightDocNumber) {
+//       console.error('[ERROR] WeightDocNumber is missing!');
+//       return res.status(400).json({ 
+//         error: 'WeightDocNumber is required. Please ensure it is generated on the frontend.' 
+//       });
+//     }
 
-    const { token, cookies } = await fetchCsrfTokenWeight();
+//     const { token, cookies } = await fetchCsrfTokenWeight();
 
-    console.log('[DEBUG] Sanitized payload for Material Outward:', JSON.stringify(input, null, 2));
+//     console.log('[DEBUG] Sanitized payload for Material Outward:', JSON.stringify(input, null, 2));
 
-    const resp = await sapAxiosWeight.post('/YY1_CAPTURINGWEIGHTDETAILS', input, {
-      headers: {
-        'Content-Type': 'application/json',
-        'x-csrf-token': token,
-        Cookie: cookies,
-      },
-    });
+//     const resp = await sapAxiosWeight.post('/YY1_CAPTURINGWEIGHTDETAILS', input, {
+//       headers: {
+//         'Content-Type': 'application/json',
+//         'x-csrf-token': token,
+//         Cookie: cookies,
+//       },
+//     });
 
-    res.status(resp.status).json(resp.data);
-  } catch (err) {
-    console.error('POST Material Outward error', err?.response?.status, err?.response?.data || err?.message);
-    res.status(err?.response?.status || 500).json({ error: err?.response?.data || err?.message });
-  }
-});
+//     res.status(resp.status).json(resp.data);
+//   } catch (err) {
+//     console.error('POST Material Outward error', err?.response?.status, err?.response?.data || err?.message);
+//     res.status(err?.response?.status || 500).json({ error: err?.response?.data || err?.message });
+//   }
+// });
 
 /* PATCH update header */
 app.patch('/api/headers/:id', async (req, res) => {
@@ -1028,7 +1028,7 @@ app.get('/api/initial-registrations', async (req, res) => {
       // Use substringof instead of contains - OData V2 syntax
       const clauses = [
         `substringof('${s}',RegistrationNumber)`,
-        `substringof('${s}',SalesDocument)`,
+        `substringof('${s}',SalesDocument2)`,
         `substringof('${s}',VehicleNumber)`,
         `substringof('${s}',Transporter)`,
         `substringof('${s}',SAP_Description)`
@@ -1046,8 +1046,26 @@ app.get('/api/initial-registrations', async (req, res) => {
 
     // Normalize OData V2 shape
     const d = resp.data?.d || {};
-    const results = Array.isArray(d.results) ? d.results : (Array.isArray(resp.data?.value) ? resp.data.value : []);
+    let results = Array.isArray(d.results) ? d.results : (Array.isArray(resp.data?.value) ? resp.data.value : []);
     const count = d.__count != null ? Number(d.__count) : results.length;
+
+    // --- RemainingQty always shows total available quantity ---
+    // Group by SO (SalesDocument2 or SalesDocument), sum ExpectedQty
+    const soGroups = {};
+    results.forEach(r => {
+      const so = r.SalesDocument2 || r.SalesDocument;
+      if (!so) return;
+      if (!soGroups[so]) soGroups[so] = { totalQty: 0 };
+      soGroups[so].totalQty += Number(r.ExpectedQty) || 0;
+    });
+    // Attach RemainingQty (totalQty) to each record
+    results = results.map(r => {
+      const so = r.SalesDocument2 || r.SalesDocument;
+      if (so && soGroups[so]) {
+        return { ...r, RemainingQty: soGroups[so].totalQty };
+      }
+      return r;
+    });
 
     return res.json({ d: { __count: count, results } });
   } catch (err) {
@@ -1576,25 +1594,81 @@ async function fetchCsrfTokenOutboundDelivery() {
 }
 
 // POST Outbound Delivery
-app.post('/api/outbounddelivery', async (req, res) => {
+// app.post('/api/outbounddelivery', async (req, res) => {
+//   try {
+//     const input = sanitizePayloadForSapServerSide(req.body);
+//     const { token, cookies } = await fetchCsrfTokenOutboundDelivery();
+//     const resp = await sapAxiosOBD.post('/A_OutbDeliveryHeader', input, {
+//       headers: {
+//         'Content-Type': 'application/json',
+//         'x-csrf-token': token,
+//         Cookie: cookies
+//       }
+
+//     });
+//     res.status(resp.status).json(resp.data);
+//   } catch (err) {
+//     console.error('Outbound Delivery post error', err?.response?.status, err?.response?.data || err.message);
+//     res.status(err?.response?.status || 500).json({ error: err?.response?.data || err?.message || 'Failed to create outbound delivery' });
+//   }
+// });
+app.post('/api/materialoutward-full', async (req, res) => {
   try {
-    const input = sanitizePayloadForSapServerSide(req.body);
-    const { token, cookies } = await fetchCsrfTokenOutboundDelivery();
-    const resp = await sapAxiosOBD.post('/A_OutbDeliveryHeader', input, {
+    // ...existing code...
+
+    // 1. Create Outbound Delivery
+    const outboundInput = sanitizePayloadForSapServerSide(req.body.outboundDelivery);
+    const { token: obdToken, cookies: obdCookies } = await fetchCsrfTokenOutboundDelivery();
+    const obdResp = await sapAxiosOBD.post('/A_OutbDeliveryHeader', outboundInput, {
       headers: {
         'Content-Type': 'application/json',
-        'x-csrf-token': token,
-        Cookie: cookies
+        'x-csrf-token': obdToken,
+        Cookie: obdCookies
       }
-
     });
-    res.status(resp.status).json(resp.data);
+
+    // Extract Outbound Delivery Number
+    const outboundDeliveryNumber =
+      obdResp.data?.d?.DeliveryDocument ||
+      obdResp.data?.DeliveryDocument ||
+      obdResp.data?.d?.DeliveryNumber ||
+      obdResp.data?.DeliveryNumber ||
+      null;
+
+    // 2. Create Weight Document only if Outbound Delivery succeeded
+    const weightInput = sanitizePayloadForSapServerSide(req.body.weightDocument);
+    const { token: weightToken, cookies: weightCookies } = await fetchCsrfTokenWeight();
+    const weightResp = await sapAxiosWeight.post('/YY1_CAPTURINGWEIGHTDETAILS', weightInput, {
+      headers: {
+        'Content-Type': 'application/json',
+        'x-csrf-token': weightToken,
+        Cookie: weightCookies,
+      },
+    });
+
+    // Extract Weight Document Number and Gate Entry Number
+    const weightDocNumber =
+      weightResp.data?.d?.WeightDocNumber ||
+      weightResp.data?.WeightDocNumber ||
+      null;
+    const gateEntryNumber =
+      weightResp.data?.d?.GateEntryNumber ||
+      weightResp.data?.GateEntryNumber ||
+      null;
+
+    // 3. Return both results
+    res.json({
+      success: true,
+      outboundDeliveryNumber,
+      weightDocNumber,
+      gateEntryNumber
+    });
   } catch (err) {
-    console.error('Outbound Delivery post error', err?.response?.status, err?.response?.data || err.message);
-    res.status(err?.response?.status || 500).json({ error: err?.response?.data || err?.message || 'Failed to create outbound delivery' });
+    // Use friendly SAP error parser for client clarity
+    const friendlyMsg = parseSapErrorToFriendlyMessage(err);
+    res.status(500).json({ success: false, error: friendlyMsg });
   }
 });
-
 // Fetch CSRF token for Goods Issue OData service
 async function fetchCsrfTokenGoodsIssue() {
   try {
